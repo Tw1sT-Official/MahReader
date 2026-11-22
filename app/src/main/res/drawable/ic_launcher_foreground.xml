@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Ambient Crimson Glow beneath book -->
+    <path
+        android:fillColor="#22FF3B30"
+        android:pathData="M24,54a30,24 0,1 0,60 0a30,24 0,1 0,-60 0Z" />
+
+    <!-- Left Book Page (Curved Open Novel) -->
+    <path
+        android:fillColor="#EBEBF0"
+        android:pathData="M52,35 C42,33 32,36 24,39 L24,73 C32,70 42,67 52,70 Z" />
+
+    <!-- Left Page Inner Shadow / Dimension -->
+    <path
+        android:fillColor="#26262C"
+        android:pathData="M52,35 C49,34.5 45,35.5 42,36.5 L42,70.5 C45,69.5 49,69 52,70 Z" />
+
+    <!-- Right Book Page (Curved Open Novel) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,35 C66,33 76,36 84,39 L84,73 C76,70 66,67 56,70 Z" />
+
+    <!-- Right Page Shading -->
+    <path
+        android:fillColor="#D8D8DF"
+        android:pathData="M56,35 C59,34.5 63,35.5 66,36.5 L66,70.5 C63,69.5 59,69 56,70 Z" />
+
+    <!-- Text Lines on Right Page (Light Novel Stylized Lines) -->
+    <path
+        android:fillColor="#8E8E93"
+        android:pathData="M68,43 L80,45 A1,1 0 0 1 80,47 L68,45 A1,1 0 0 1 68,43 Z" />
+    <path
+        android:fillColor="#8E8E93"
+        android:pathData="M68,50 L80,52 A1,1 0 0 1 80,54 L68,52 A1,1 0 0 1 68,50 Z" />
+    <path
+        android:fillColor="#8E8E93"
+        android:pathData="M68,57 L76,59 A1,1 0 0 1 76,61 L68,59 A1,1 0 0 1 68,57 Z" />
+
+    <!-- Center Spine Shadow -->
+    <path
+        android:fillColor="#121216"
+        android:pathData="M52,35 L56,35 L56,72 L52,72 Z" />
+
+    <!-- TW1ST Crimson Red Bookmark Ribbon with swallowtail notch -->
+    <path
+        android:fillColor="#FF3B30"
+        android:pathData="M50,26 L58,26 L58,62 L54,58 L50,62 Z" />
+
+    <!-- Eye Strain Golden Glint at top of ribbon -->
+    <path
+        android:fillColor="#E8C58C"
+        android:pathData="M51,26 L57,26 L57,29 L51,29 Z" />
+
+</vector>
