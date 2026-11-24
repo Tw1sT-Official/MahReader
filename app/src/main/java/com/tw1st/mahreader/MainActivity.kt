@@ -53,7 +53,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.tw1st.mahreader.data.BookEntity
 import com.tw1st.mahreader.data.ReadingTheme
 import com.tw1st.mahreader.ui.theme.*
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -70,7 +69,6 @@ class MainActivity : ComponentActivity() {
         windowInsetsController.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-        // If launched via file intent (e.g. tap PDF in file manager)
         intent?.data?.let { uri ->
             val title = queryFileName(this, uri) ?: "Light Novel"
             viewModel.openBook(uri, title)
@@ -81,7 +79,6 @@ class MainActivity : ComponentActivity() {
                 val currentBook by viewModel.currentBook.collectAsState()
                 val isHudVisible by viewModel.isHudVisible.collectAsState()
 
-                // Fullscreen immersive mode control
                 LaunchedEffect(currentBook, isHudVisible) {
                     if (currentBook != null && !isHudVisible) {
                         windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -132,7 +129,6 @@ fun BookshelfScreen(
     val folderPdfs by viewModel.folderPdfs.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    // Folder Picker
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { treeUri ->
@@ -143,7 +139,6 @@ fun BookshelfScreen(
         }
     }
 
-    // Single File Picker
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -195,7 +190,6 @@ fun BookshelfScreen(
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // Open File button
                         IconButton(
                             onClick = { filePicker.launch(arrayOf("application/pdf")) },
                             modifier = Modifier
@@ -205,7 +199,6 @@ fun BookshelfScreen(
                             Icon(Icons.Default.FileOpen, contentDescription = "Open PDF", tint = TextWhite)
                         }
 
-                        // Folder Picker button
                         Button(
                             onClick = { folderPicker.launch(null) },
                             colors = ButtonDefaults.buttonColors(
@@ -228,7 +221,6 @@ fun BookshelfScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Active / Remembered Folder Banner
                 Surface(
                     onClick = { folderPicker.launch(null) },
                     shape = RoundedCornerShape(10.dp),
@@ -273,7 +265,6 @@ fun BookshelfScreen(
         },
         floatingActionButtonPosition = FabPosition.End,
         floatingActionButton = {
-            // Unfinished Novel Resume FAB at Bottom Right
             if (unfinishedBook != null) {
                 val book = unfinishedBook!!
                 ExtendedFloatingActionButton(
@@ -348,7 +339,6 @@ fun BookshelfScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Section 1: Recent Reading Progress
                     if (allBooks.isNotEmpty()) {
                         item {
                             Text(
@@ -373,7 +363,6 @@ fun BookshelfScreen(
                         }
                     }
 
-                    // Section 2: PDFs from Remembered Folder
                     if (folderPdfs.isNotEmpty()) {
                         item {
                             Spacer(modifier = Modifier.height(8.dp))
@@ -487,7 +476,6 @@ fun BookCard(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Book Icon / Badge
             Box(
                 modifier = Modifier
                     .size(46.dp)
@@ -536,7 +524,6 @@ fun BookCard(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Progress Bar
                 LinearProgressIndicator(
                     progress = { progress / 100f },
                     modifier = Modifier
@@ -571,11 +558,52 @@ fun ReaderScreen(
 ) {
     BackHandler { onClose() }
 
+    val context = LocalContext.current
     val currentPage by viewModel.currentPage.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
     val readingTheme by viewModel.readingTheme.collectAsState()
     val isContinuousScroll by viewModel.isContinuousScroll.collectAsState()
     val isHudVisible by viewModel.isHudVisible.collectAsState()
+
+    // Auto-Reader states
+    val isAutoReaderEnabled by viewModel.isAutoReaderEnabled.collectAsState()
+    val isAutoReaderPlaying by viewModel.isAutoReaderPlaying.collectAsState()
+    val autoReaderSpeed by viewModel.autoReaderSpeed.collectAsState()
+    val isMissingVoiceData by viewModel.isMissingVoiceData.collectAsState()
+
+    var showTtsDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isMissingVoiceData) {
+        if (isMissingVoiceData) {
+            showTtsDialog = true
+        }
+    }
+
+    if (showTtsDialog) {
+        AlertDialog(
+            onDismissRequest = { showTtsDialog = false },
+            containerColor = CardDark,
+            title = { Text("Download Offline Voice", color = TextWhite, fontWeight = FontWeight.Bold) },
+            text = { Text("Your device has a speech engine but needs the offline voice data downloaded.", color = TextGray) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showTtsDialog = false
+                        try {
+                            context.startActivity(viewModel.autoReader.getInstallTtsDataIntent())
+                        } catch (_: Exception) {}
+                    }
+                ) {
+                    Text("Open Settings", color = CrimsonRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTtsDialog = false }) {
+                    Text("Cancel", color = TextGray)
+                }
+            }
+        )
+    }
 
     val screenBg = when (readingTheme) {
         ReadingTheme.AMOLED_DARK -> Black
@@ -608,7 +636,7 @@ fun ReaderScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 60.dp)
+                contentPadding = PaddingValues(bottom = 80.dp)
             ) {
                 items(totalPages) { pageIndex ->
                     PdfPageView(
@@ -642,7 +670,7 @@ fun ReaderScreen(
             }
         }
 
-        // Animated HUD Controls (Top & Bottom Bars)
+        // Top HUD Bar
         AnimatedVisibility(
             visible = isHudVisible,
             enter = fadeIn() + slideInVertically { -it },
@@ -653,10 +681,13 @@ fun ReaderScreen(
                 title = book.title,
                 currentPage = currentPage,
                 totalPages = totalPages,
+                isAutoReaderEnabled = isAutoReaderEnabled,
+                onToggleAutoReader = { viewModel.toggleAutoReader() },
                 onBack = onClose
             )
         }
 
+        // Bottom Settings Controls
         AnimatedVisibility(
             visible = isHudVisible,
             enter = fadeIn() + slideInVertically { it },
@@ -668,16 +699,146 @@ fun ReaderScreen(
                 totalPages = totalPages,
                 currentTheme = readingTheme,
                 isContinuous = isContinuousScroll,
-                onPageChange = { targetPage ->
-                    viewModel.onPageChanged(targetPage)
-                },
-                onThemeChange = { theme ->
-                    viewModel.setReadingTheme(theme)
-                },
-                onToggleScroll = {
-                    viewModel.setScrollMode(!isContinuousScroll)
-                }
+                onPageChange = { targetPage -> viewModel.onPageChanged(targetPage) },
+                onThemeChange = { theme -> viewModel.setReadingTheme(theme) },
+                onToggleScroll = { viewModel.setScrollMode(!isContinuousScroll) }
             )
+        }
+
+        // Floating Auto-Reader Controller (visible whenever Auto-Reader is ON)
+        AnimatedVisibility(
+            visible = isAutoReaderEnabled,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = if (isHudVisible) 140.dp else 24.dp)
+        ) {
+            AutoReaderFloatingBar(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                isPlaying = isAutoReaderPlaying,
+                currentSpeed = autoReaderSpeed,
+                onTogglePlay = { viewModel.resumeAutoReader() },
+                onPrevPage = { viewModel.prevAutoReaderPage() },
+                onNextPage = { viewModel.nextAutoReaderPage() },
+                onSpeedChange = { speed -> viewModel.setAutoReaderSpeed(speed) },
+                onClose = { viewModel.toggleAutoReader() }
+            )
+        }
+    }
+}
+
+@Composable
+fun AutoReaderFloatingBar(
+    currentPage: Int,
+    totalPages: Int,
+    isPlaying: Boolean,
+    currentSpeed: Float,
+    onTogglePlay: () -> Unit,
+    onPrevPage: () -> Unit,
+    onNextPage: () -> Unit,
+    onSpeedChange: (Float) -> Unit,
+    onClose: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xF2121217),
+        border = BorderStroke(1.dp, CrimsonBorder),
+        shadowElevation = 8.dp,
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Header status
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (isPlaying) Color(0xFF30D158) else Color(0xFFFF9500))
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isPlaying) "Auto-Reading p. ${currentPage + 1}" else "Paused (p. ${currentPage + 1})",
+                        color = TextWhite,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+
+                // Close / Turn Off Button
+                IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Turn off Auto-Reader", tint = TextGray, modifier = Modifier.size(16.dp))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Playback controls row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Prev page
+                IconButton(onClick = onPrevPage, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous Page", tint = TextWhite)
+                }
+
+                // Play / Pause Circle Button
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(CrimsonRed)
+                        .clickable { onTogglePlay() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = "Play/Pause",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                // Next page
+                IconButton(onClick = onNextPage, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.SkipNext, contentDescription = "Next Page", tint = TextWhite)
+                }
+
+                // Speed Selector Pills
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(1.0f to "1x", 1.25f to "1.25x", 1.5f to "1.5x", 2.0f to "2x").forEach { (speed, label) ->
+                        val isSelected = currentSpeed == speed
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSelected) CrimsonRed else Color(0xFF222228))
+                                .clickable { onSpeedChange(speed) }
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) Color.White else TextGray
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -729,6 +890,8 @@ fun ReaderTopBar(
     title: String,
     currentPage: Int,
     totalPages: Int,
+    isAutoReaderEnabled: Boolean,
+    onToggleAutoReader: () -> Unit,
     onBack: () -> Unit
 ) {
     Surface(
@@ -765,6 +928,33 @@ fun ReaderTopBar(
                     fontSize = 11.sp
                 )
             }
+
+            // Auto-Reader Toggle Button
+            Surface(
+                onClick = onToggleAutoReader,
+                shape = RoundedCornerShape(10.dp),
+                color = if (isAutoReaderEnabled) CrimsonRed else Color(0xFF222228),
+                border = BorderStroke(1.dp, if (isAutoReaderEnabled) CrimsonBorder else CardBorder)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Headphones,
+                        contentDescription = "Auto Reader",
+                        tint = if (isAutoReaderEnabled) Color.White else TextLightGray,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = if (isAutoReaderEnabled) "Reading" else "Listen",
+                        color = if (isAutoReaderEnabled) Color.White else TextLightGray,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }
@@ -790,7 +980,6 @@ fun ReaderBottomControls(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
-            // Page Slider
             if (totalPages > 1) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -828,13 +1017,11 @@ fun ReaderBottomControls(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Mode & Theme Selector Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Theme Chips
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val themes = listOf(
                         ReadingTheme.AMOLED_DARK to "AMOLED",
@@ -873,7 +1060,6 @@ fun ReaderBottomControls(
                     }
                 }
 
-                // Scroll vs Flip toggle
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))

@@ -11,6 +11,7 @@ import com.tw1st.mahreader.data.AppDatabase
 import com.tw1st.mahreader.data.BookEntity
 import com.tw1st.mahreader.data.ReadingTheme
 import com.tw1st.mahreader.pdf.PdfEngine
+import com.tw1st.mahreader.tts.AutoReaderManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -25,13 +26,13 @@ data class FolderPdfItem(
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = AppDatabase.getDatabase(application).bookDao()
     val pdfEngine = PdfEngine(application)
+    val autoReader = AutoReaderManager(application)
 
     private val prefs = application.getSharedPreferences("mah_reader_prefs", Context.MODE_PRIVATE)
 
     val allBooks: StateFlow<List<BookEntity>> = dao.getAllBooks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Most recent unfinished book (progress < 100%)
     val unfinishedBook: StateFlow<BookEntity?> = allBooks.map { books ->
         books.firstOrNull { it.totalPages > 0 && (it.lastReadPage + 1) < it.totalPages }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -57,6 +58,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    // Auto-Reader State
+    private val _isAutoReaderEnabled = MutableStateFlow(false)
+    val isAutoReaderEnabled: StateFlow<Boolean> = _isAutoReaderEnabled.asStateFlow()
+
+    val isAutoReaderPlaying: StateFlow<Boolean> = autoReader.isPlaying
+    val autoReaderSpeed: StateFlow<Float> = autoReader.speechRate
+    val isTtsAvailable: StateFlow<Boolean> = autoReader.isTtsAvailable
+    val isMissingVoiceData: StateFlow<Boolean> = autoReader.isMissingVoiceData
+
     // Remembered folder of Light Novels
     private val _lastFolderName = MutableStateFlow(prefs.getString("folder_name", null))
     val lastFolderName: StateFlow<String?> = _lastFolderName.asStateFlow()
@@ -68,7 +78,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     val folderPdfs: StateFlow<List<FolderPdfItem>> = _folderPdfs.asStateFlow()
 
     init {
-        // Load files from remembered folder on startup
         loadSavedFolder()
     }
 
@@ -152,7 +161,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
                 val id = dao.insertOrUpdate(bookToSave)
                 _currentBook.value = bookToSave.copy(id = if (existing != null) existing.id else id.toInt())
-                _isHudVisible.value = false // immersive full-screen by default
+                _isHudVisible.value = false
             } catch (e: Exception) {
                 android.util.Log.e("ReaderViewModel", "Error opening PDF", e)
             } finally {
@@ -168,6 +177,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             viewModelScope.launch(Dispatchers.IO) {
                 dao.updateProgress(book.id, page)
                 _currentBook.value = book.copy(lastReadPage = page)
+            }
+            if (_isAutoReaderEnabled.value && autoReader.isPlaying.value) {
+                readCurrentPageAloud()
             }
         }
     }
@@ -197,7 +209,66 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _isHudVisible.value = false
     }
 
+    // Auto-Reader Controls
+    fun toggleAutoReader() {
+        val newState = !_isAutoReaderEnabled.value
+        _isAutoReaderEnabled.value = newState
+        if (newState) {
+            readCurrentPageAloud()
+        } else {
+            autoReader.stop()
+        }
+    }
+
+    fun pauseAutoReader() {
+        autoReader.pause()
+    }
+
+    fun resumeAutoReader() {
+        if (autoReader.isPlaying.value) {
+            autoReader.pause()
+        } else {
+            readCurrentPageAloud()
+        }
+    }
+
+    fun setAutoReaderSpeed(speed: Float) {
+        autoReader.setSpeed(speed)
+    }
+
+    fun nextAutoReaderPage() {
+        if (_currentPage.value + 1 < _totalPages.value) {
+            onPageChanged(_currentPage.value + 1)
+        } else {
+            autoReader.stop()
+        }
+    }
+
+    fun prevAutoReaderPage() {
+        if (_currentPage.value > 0) {
+            onPageChanged(_currentPage.value - 1)
+        }
+    }
+
+    private fun readCurrentPageAloud() {
+        viewModelScope.launch {
+            val pageIndex = _currentPage.value
+            val text = pdfEngine.extractPageText(pageIndex)
+            autoReader.startReadingPage(text) {
+                // When this page completes, automatically advance to next page!
+                if (_currentPage.value + 1 < _totalPages.value) {
+                    onPageChanged(_currentPage.value + 1)
+                } else {
+                    autoReader.stop()
+                    _isAutoReaderEnabled.value = false
+                }
+            }
+        }
+    }
+
     fun closeBook() {
+        autoReader.stop()
+        _isAutoReaderEnabled.value = false
         pdfEngine.close()
         _currentBook.value = null
         _currentPage.value = 0
@@ -213,6 +284,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         super.onCleared()
+        autoReader.shutdown()
         pdfEngine.close()
     }
 }

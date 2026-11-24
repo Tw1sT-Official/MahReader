@@ -6,6 +6,9 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.LruCache
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tw1st.mahreader.data.ReadingTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,12 +20,19 @@ import kotlin.math.max
 class PdfEngine(private val context: Context) {
     private var pfd: ParcelFileDescriptor? = null
     private var renderer: PdfRenderer? = null
+    private var pdDoc: PDDocument? = null
     private var tempFile: File? = null
 
     var pageCount: Int = 0
         private set
 
-    // Memory cache for processed page bitmaps (key: "pageIndex_themeName")
+    init {
+        try {
+            PDFBoxResourceLoader.init(context)
+        } catch (_: Exception) {}
+    }
+
+    // Memory cache for processed page bitmaps (key: "pageIndex_themeName_targetWidth")
     private val memoryCache: LruCache<String, Bitmap> = object : LruCache<String, Bitmap>(30) {
         override fun sizeOf(key: String, value: Bitmap): Int {
             return (value.byteCount / 1024)
@@ -36,7 +46,6 @@ class PdfEngine(private val context: Context) {
         val inputStream = contentResolver.openInputStream(uri)
             ?: throw IllegalArgumentException("Cannot open stream for URI: $uri")
 
-        // Copy to temporary cache file so PdfRenderer has a random-access file descriptor
         val temp = File(context.cacheDir, "current_read_${System.currentTimeMillis()}.pdf")
         tempFile = temp
 
@@ -48,7 +57,28 @@ class PdfEngine(private val context: Context) {
         pfd = ParcelFileDescriptor.open(temp, ParcelFileDescriptor.MODE_READ_ONLY)
         renderer = PdfRenderer(pfd!!)
         pageCount = renderer!!.pageCount
+
+        try {
+            pdDoc = PDDocument.load(temp)
+        } catch (e: Exception) {
+            android.util.Log.e("PdfEngine", "Could not load PDDocument for text extraction", e)
+        }
+
         pageCount
+    }
+
+    suspend fun extractPageText(pageIndex: Int): String = withContext(Dispatchers.IO) {
+        val doc = pdDoc ?: return@withContext ""
+        try {
+            val stripper = PDFTextStripper()
+            stripper.startPage = pageIndex + 1
+            stripper.endPage = pageIndex + 1
+            stripper.sortByPosition = true
+            stripper.getText(doc) ?: ""
+        } catch (e: Exception) {
+            android.util.Log.e("PdfEngine", "Error stripping text for page $pageIndex", e)
+            ""
+        }
     }
 
     suspend fun renderPage(
@@ -88,11 +118,6 @@ class PdfEngine(private val context: Context) {
         finalBitmap
     }
 
-    /**
-     * Smart Selective Pixel Filter:
-     * - Identifies text and background pixels (grayscale) and flips them according to the selected theme.
-     * - Detects chromatic/color pixels (illustrations, covers, character art, logos) and leaves them 100% UNTOUCHED!
-     */
     private fun applySmartDarkFilter(source: Bitmap, theme: ReadingTheme): Bitmap {
         val width = source.width
         val height = source.height
@@ -111,7 +136,6 @@ class PdfEngine(private val context: Context) {
             val g = (pixel shr 8) and 0xFF
             val b = pixel and 0xFF
 
-            // Measure chromatic difference (saturation)
             val diffRG = abs(r - g)
             val diffGB = abs(g - b)
             val diffRB = abs(r - b)
@@ -121,26 +145,22 @@ class PdfEngine(private val context: Context) {
             if (maxDiff > 16) {
                 outPixels[i] = pixel
             } else {
-                // Grayscale element (text or background)
                 val luminance = (r * 299 + g * 587 + b * 114) / 1000
                 val inverted = 255 - luminance
 
                 if (isAmber) {
-                    // Eye Strain Amber: Deep warm midnight background (13, 10, 7) + Soothing warm amber text (232, 197, 140)
                     val factor = inverted / 255f
                     val outR = (13 + factor * (232 - 13)).toInt().coerceIn(0, 255)
                     val outG = (10 + factor * (197 - 10)).toInt().coerceIn(0, 255)
                     val outB = (7 + factor * (140 - 7)).toInt().coerceIn(0, 255)
                     outPixels[i] = (0xFF shl 24) or (outR shl 16) or (outG shl 8) or outB
                 } else if (isCharcoal) {
-                    // Soft Charcoal: Dark charcoal background (22, 22, 25) + soft white text (214, 214, 220)
                     val factor = inverted / 255f
                     val outR = (22 + factor * (214 - 22)).toInt().coerceIn(0, 255)
                     val outG = (22 + factor * (214 - 22)).toInt().coerceIn(0, 255)
                     val outB = (25 + factor * (220 - 25)).toInt().coerceIn(0, 255)
                     outPixels[i] = (0xFF shl 24) or (outR shl 16) or (outG shl 8) or outB
                 } else {
-                    // AMOLED Dark: Pure pitch black background (0, 0, 0) + Crisp white text (255, 255, 255)
                     outPixels[i] = (0xFF shl 24) or (inverted shl 16) or (inverted shl 8) or inverted
                 }
             }
@@ -162,6 +182,8 @@ class PdfEngine(private val context: Context) {
             renderer = null
             pfd?.close()
             pfd = null
+            pdDoc?.close()
+            pdDoc = null
             tempFile?.delete()
             tempFile = null
             pageCount = 0
